@@ -4,6 +4,7 @@
 # - Monthly window: from 1st of current month (00:00) to 1st of next month (exclusive)
 # - Command "סה\"כ חודשי" -> total (and per person) since 1st of month
 # - Command "סיכום חודש" -> split equally, show who owes whom and how much
+# - Command "איפוס" -> reset Google Sheet and local records
 # Data persists to expenses.json (same folder).
 
 import json
@@ -58,6 +59,24 @@ def add_record(name: str, amount: float, ts: datetime):
     # הוספת שורה חדשה לגיליון
     worksheet.append_row([date_str, name, amount])
 
+# ---- RESET GOOGLE SHEET AND DATA FILE ----
+async def reset_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # מחיקה לקבוצות השורה הראשונה ומטה – שמור כותרות אם קיימות
+        values = worksheet.get_all_values()
+        if values:
+            if len(values) > 1:
+                worksheet.resize(rows=1)
+            # מציב כותרות אם החלת RESET בראשון פעם
+            worksheet.update('A1:C1', [["תאריך", "שם", "סכום"]])
+        else:
+            # גיליון ריק, רק הוסף כותרות
+            worksheet.update('A1:C1', [["תאריך", "שם", "סכום"]])
+        # אפס את קובץ הנתונים המקומי
+        save_data({"records": []})
+        await update.message.reply_text("הנתונים אופסו! הכל התחיל מחדש 📄✅")
+    except Exception as e:
+        await update.message.reply_text(f"שגיאה באיפוס הנתונים: {e}")
 
 # ---- DATE WINDOW (1st to 1st) ----
 def month_window(dt: datetime):
@@ -103,6 +122,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• סה\"כ חודשי – סכום מצטבר מה־1 לחודש\n"
         "• סיכום חודש – חלוקה שווה וחישוב יתרה\n"
         "• פירוט חודשי – פירוט רשומות מהחודש\n"
+        "• איפוס – איפוס מוחלט של כל ההוצאות (גם בגוגל שיטס)\n"
     )
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -115,6 +135,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await monthly_split(update, context)
     if text == 'פירוט חודשי':
         return await monthly_list(update, context)
+    if text == 'איפוס':
+        return await reset_sheet(update, context)
 
     parsed = parse_expense_line(text)
     if parsed:
@@ -126,7 +148,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # soft hint
         await update.message.reply_text(
             f"לא זיהיתי פורמט. נסו למשל: {PEOPLE[0]} - 45  או  {PEOPLE[1]} - 72.5\n"
-            "או כתבו: סה\"כ חודשי / סיכום חודש / פירוט חודשי"
+            "או כתבו: סה\"כ חודשי / סיכום חודש / פירוט חודשי / איפוס"
         )
 
 async def monthly_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,6 +232,8 @@ async def monthly_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    # ניתן להוסיף גם פקודת איפוס בפקודת סלאש רשמית אם תרצה:
+    app.add_handler(CommandHandler("reset", reset_sheet))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("הבוט פועל... ✨  (עוצרים עם Ctrl+C)")
     app.run_polling()
